@@ -1,3 +1,4 @@
+import os
 from flask import Flask
 from app.routes import bp
 from common.telemetry import setup_telemetry
@@ -9,5 +10,7 @@ def create_app():
     return app
 
 app = create_app()
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
