@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloud Observability System</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+body{background:#0b1220;color:#e7edf7;font-family:system-ui} .sidebar{background:#111b2e;min-height:100vh;padding:24px}
+.card{background:#152238;color:#e7edf7;border:1px solid #263852;border-radius:14px}.muted{color:#9eafc8}.nav-link{color:#c7d5ea}.nav-link:hover{color:#fff}
+.btn-primary{background:#3d74d8}.table{--bs-table-bg:#152238;--bs-table-color:#e7edf7;--bs-table-border-color:#293c58}
+.status{font-weight:700}.ok{color:#50d6a0}.bad{color:#ff7777}pre{white-space:pre-wrap;color:#d4e2fa}
+</style>
+</head>
+<body><div class="container-fluid"><div class="row">
+<aside class="col-md-2 sidebar"><h5>☁ CloudGuard</h5><p class="muted small">Cloud Observability</p>
+<nav class="nav flex-column gap-2"><a class="nav-link" href="#overview">Overview</a><a class="nav-link" href="#services">Services</a><a class="nav-link" href="#logs">Logs</a><a class="nav-link" href="#incidents">Incidents & Alerts</a><a class="nav-link" href="#demo">Demo Controls</a>
+<hr><a class="nav-link" target="_blank" href="http://localhost:3000">Grafana ↗</a><a class="nav-link" target="_blank" href="http://localhost:9090">Prometheus ↗</a><a class="nav-link" target="_blank" href="http://localhost:16686">Jaeger ↗</a></nav></aside>
+<main class="col-md-10 p-4"><div class="d-flex justify-content-between align-items-center mb-4"><div><h2>Cloud Observability Dashboard</h2><div class="muted">Metrics · Logs · Distributed Tracing</div></div><button class="btn btn-outline-light" onclick="refreshAll()">Refresh</button></div>
+<section id="overview"><h4>Overview</h4><div class="row g-3 mb-4" id="summary"></div><div class="card p-3 mb-4"><h5>Request activity (demo counters)</h5><canvas id="chart" height="90"></canvas><small class="muted">Dashboard request counters are in-memory demonstration data; Prometheus has the service metrics.</small></div></section>
+<section id="services" class="mb-4"><h4>Service Health</h4><div class="card p-3"><div class="table-responsive"><table class="table"><thead><tr><th>Service</th><th>Status</th><th>HTTP</th></tr></thead><tbody id="services-body"></tbody></table></div></div></section>
+<section id="logs" class="mb-4"><h4>Centralized / Local Logs</h4><div class="card p-3"><div class="row g-2 mb-3"><div class="col"><input id="logq" class="form-control" placeholder="Search logs"></div><div class="col"><select id="loglevel" class="form-select"><option value="">All levels</option><option>INFO</option><option>WARNING</option><option>ERROR</option></select></div><div class="col-auto"><button class="btn btn-primary" onclick="loadLogs()">Search</button></div></div><pre id="logs-out">Loading…</pre></div></section>
+<section id="incidents" class="mb-4"><h4>Incidents & Alerts</h4><div class="row g-3"><div class="col-lg-5"><div class="card p-3"><h5>Active alerts</h5><div id="alerts-out"></div></div></div><div class="col-lg-7"><div class="card p-3"><h5>Incident history</h5><div id="incidents-out"></div></div></div></div></section>
+<section id="demo" class="mb-4"><h4>Demonstration Controls</h4><p class="muted">These controls trigger simulated faults in the local demo environment.</p><div class="d-flex flex-wrap gap-2"><button class="btn btn-success" onclick="runDemo('normal-traffic')">Generate normal traffic</button><button class="btn btn-warning" onclick="runDemo('high-latency')">High latency</button><button class="btn btn-danger" onclick="runDemo('payment-timeout')">Payment timeout</button><button class="btn btn-danger" onclick="runDemo('application-error')">Application error</button><button class="btn btn-danger" onclick="runDemo('service-unavailable')">Service unavailable</button><button class="btn btn-secondary" onclick="runDemo('recover')">Recover / reset</button></div><pre id="demo-out" class="mt-3"></pre></section>
+<footer class="muted small">Student demonstration build. Simulated faults are not production incidents.</footer>
+</main></div></div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let chart;
+async function get(url){let r=await fetch(url);return await r.json()}
+function card(title,value,sub=''){return `<div class="col-6 col-xl-3"><div class="card p-3 h-100"><div class="muted">${title}</div><h3 class="mt-2">${value}</h3><small class="muted">${sub}</small></div></div>`}
+async function refreshAll(){
+ const s=await get('/api/metrics/summary');
+ document.getElementById('summary').innerHTML=card('Total requests',s.total_requests,'Dashboard demo counter')+card('Successful',s.success_requests,'Based on demo requests')+card('Failed',s.failed_requests,'Based on demo requests')+card('Average latency',s.avg_latency_ms.toFixed(1)+' ms','End-to-end demo request time')+card('Error rate',(s.error_rate*100).toFixed(1)+'%','Based on demo requests');
+ const sv=await get('/api/health');document.getElementById('services-body').innerHTML=Object.entries(sv).map(([n,v])=>`<tr><td>${n}</td><td class="status ${v.status==='healthy'?'ok':'bad'}">${v.status}</td><td>${v.http_status??'—'}</td></tr>`).join('');
+ const a=await get('/api/alerts');document.getElementById('alerts-out').innerHTML=a.length?a.map(x=>`<p><span class="badge text-bg-${x.severity==='critical'?'danger':'warning'}">${x.severity}</span> <b>${x.name}</b><br>${x.message}</p>`).join(''):'<span class="muted">No active dashboard alerts.</span>';
+ const i=await get('/api/incidents');document.getElementById('incidents-out').innerHTML=i.length?i.map(x=>`<p><b>#${x.id} ${x.title}</b> <span class="muted">${x.created_at}</span><br>${x.service} · ${x.severity} · ${x.status}</p>`).join(''):'<span class="muted">No incidents recorded yet.</span>';
+ if(window.Chart){const ctx=document.getElementById('chart');if(chart)chart.destroy();chart=new Chart(ctx,{type:'bar',data:{labels:['Successful','Failed'],datasets:[{label:'Requests',data:[s.success_requests,s.failed_requests]}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}})}
+ await loadLogs();
+}
+async function loadLogs(){const q=encodeURIComponent(document.getElementById('logq').value);const l=encodeURIComponent(document.getElementById('loglevel').value);const rows=await get(`/api/logs?q=${q}&level=${l}`);document.getElementById('logs-out').textContent=rows.length?rows.map(x=>JSON.stringify(x)).join('\\n'):'No matching local JSON logs found. Docker log aggregation may be configured separately.'}
+async function runDemo(name){document.getElementById('demo-out').textContent='Running '+name+'…';const r=await fetch('/api/demo/'+name,{method:'POST'});document.getElementById('demo-out').textContent=JSON.stringify(await r.json(),null,2);await refreshAll()}
+refreshAll();setInterval(refreshAll,15000);
+</script></body></html>

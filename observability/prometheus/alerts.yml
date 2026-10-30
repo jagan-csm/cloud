@@ -1,0 +1,24 @@
+groups:
+  - name: cloud-observability
+    rules:
+      - alert: HighRequestLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[2m])) by (le, service)) > 1
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: High request latency for {{ $labels.service }}
+      - alert: HighHttpErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[2m])) by (service) / clamp_min(sum(rate(http_requests_total[2m])) by (service), 0.001) > 0.1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: High HTTP error rate for {{ $labels.service }}
+      - alert: ServiceDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: Prometheus cannot scrape {{ $labels.job }}

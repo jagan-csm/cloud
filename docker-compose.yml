@@ -1,0 +1,115 @@
+services:
+  dashboard:
+    build: .
+    command: python -m app.main
+    ports: ["5000:5000"]
+    environment:
+      SERVICE_NAME: dashboard
+      ENABLE_FAULTS: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      PUBLIC_GATEWAY_URL: http://api_gateway:8000
+      PUBLIC_PRODUCT_URL: http://product_service:8001
+      PUBLIC_ORDER_URL: http://order_service:8002
+      PUBLIC_PAYMENT_URL: http://payment_service:8003
+      GATEWAY_URL: http://api_gateway:8000
+      LOG_DIR: /var/log/obs
+    volumes: [obslogs:/var/log/obs, appdata:/workspace/data]
+    depends_on: [api_gateway, product_service, order_service, payment_service, jaeger]
+  api_gateway:
+    build: .
+    command: python -m services.api_gateway.main
+    ports: ["8000:8000"]
+    environment:
+      PORT: 8000
+      SERVICE_NAME: api-gateway
+      ENABLE_FAULTS: "true"
+      ORDER_URL: http://order_service:8002
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      LOG_DIR: /var/log/obs
+    volumes: [obslogs:/var/log/obs]
+    depends_on: [order_service, jaeger]
+  product_service:
+    build: .
+    command: python -m services.product_service.main
+    ports: ["8001:8001"]
+    environment:
+      PORT: 8001
+      SERVICE_NAME: product-service
+      ENABLE_FAULTS: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      LOG_DIR: /var/log/obs
+    volumes: [obslogs:/var/log/obs]
+    depends_on: [jaeger]
+  order_service:
+    build: .
+    command: python -m services.order_service.main
+    ports: ["8002:8002"]
+    environment:
+      PORT: 8002
+      SERVICE_NAME: order-service
+      ENABLE_FAULTS: "true"
+      PRODUCT_URL: http://product_service:8001
+      PAYMENT_URL: http://payment_service:8003
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      LOG_DIR: /var/log/obs
+    volumes: [obslogs:/var/log/obs]
+    depends_on: [product_service, payment_service, jaeger]
+  payment_service:
+    build: .
+    command: python -m services.payment_service.main
+    ports: ["8003:8003"]
+    environment:
+      PORT: 8003
+      SERVICE_NAME: payment-service
+      ENABLE_FAULTS: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      LOG_DIR: /var/log/obs
+    volumes: [obslogs:/var/log/obs]
+    depends_on: [jaeger]
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports: ["9090:9090"]
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
+    depends_on: [dashboard, api_gateway, product_service, order_service, payment_service]
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports: ["9093:9093"]
+    volumes: ["./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"]
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    ports: ["16686:16686", "4318:4318"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+  loki:
+    image: grafana/loki:3.1.1
+    ports: ["3100:3100"]
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes: ["./observability/loki/loki-config.yml:/etc/loki/local-config.yaml:ro", "loki-data:/loki"]
+  promtail:
+    image: grafana/promtail:3.1.1
+    volumes:
+      - obslogs:/var/log/obs:ro
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+    command: ["-config.file=/etc/promtail/config.yml"]
+    depends_on: [loki]
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    ports: ["9100:9100"]
+volumes:
+  obslogs:
+  appdata:
+  loki-data:
